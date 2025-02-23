@@ -1,0 +1,38 @@
+[
+{
+  "directory": "F:/code/vscodecpp/tshark/build",
+  "command": "F:\\program\\MinGW\\bin\\g++.exe -DNOMINMAX @CMakeFiles/tshark.dir/includes_CXX.rsp -g -std=gnu++11 -o CMakeFiles\\tshark.dir\\main.cpp.obj -c F:\\code\\vscodecpp\\tshark\\main.cpp",
+  "file": "F:/code/vscodecpp/tshark/main.cpp",
+  "output": "CMakeFiles/tshark.dir/main.cpp.obj"
+},
+{
+  "directory": "F:/code/vscodecpp/tshark/build",
+  "command": "F:\\program\\MinGW\\bin\\g++.exe -DNOMINMAX @CMakeFiles/tshark.dir/includes_CXX.rsp -g -std=gnu++11 -o CMakeFiles\\tshark.dir\\tsharkManager.cpp.obj -c F:\\code\\vscodecpp\\tshark\\tsharkManager.cpp",
+  "file": "F:/code/vscodecpp/tshark/tsharkManager.cpp",
+  "output": "CMakeFiles/tshark.dir/tsharkManager.cpp.obj"
+},
+{
+  "directory": "F:/code/vscodecpp/tshark/build",
+  "command": "F:\\program\\MinGW\\bin\\g++.exe -DNOMINMAX @CMakeFiles/tshark.dir/includes_CXX.rsp -g -std=gnu++11 -o CMakeFiles\\tshark.dir\\third_library\\loguru\\loguru.cpp.obj -c F:\\code\\vscodecpp\\tshark\\third_library\\loguru\\loguru.cpp",
+  "file": "F:/code/vscodecpp/tshark/third_library/loguru/loguru.cpp",
+  "output": "CMakeFiles/tshark.dir/third_library/loguru/loguru.cpp.obj"
+},
+{
+  "directory": "F:/code/vscodecpp/tshark/build",
+  "command": "F:\\program\\MinGW\\bin\\g++.exe -DNOMINMAX @CMakeFiles/tshark.dir/includes_CXX.rsp -g -std=gnu++11 -o CMakeFiles\\tshark.dir\\third_library\\ip2region\\xdb_bench.cc.obj -c F:\\code\\vscodecpp\\tshark\\third_library\\ip2region\\xdb_bench.cc",
+  "file": "F:/code/vscodecpp/tshark/third_library/ip2region/xdb_bench.cc",
+  "output": "CMakeFiles/tshark.dir/third_library/ip2region/xdb_bench.cc.obj"
+},
+{
+  "directory": "F:/code/vscodecpp/tshark/build",
+  "command": "F:\\program\\MinGW\\bin\\g++.exe -DNOMINMAX @CMakeFiles/tshark.dir/includes_CXX.rsp -g -std=gnu++11 -o CMakeFiles\\tshark.dir\\third_library\\ip2region\\xdb_search.cc.obj -c F:\\code\\vscodecpp\\tshark\\third_library\\ip2region\\xdb_search.cc",
+  "file": "F:/code/vscodecpp/tshark/third_library/ip2region/xdb_search.cc",
+  "output": "CMakeFiles/tshark.dir/third_library/ip2region/xdb_search.cc.obj"
+},
+{
+  "directory": "F:/code/vscodecpp/tshark/build",
+  "command": "F:\\program\\MinGW\\bin\\g++.exe -DNOMINMAX @CMakeFiles/tshark.dir/includes_CXX.rsp -g -std=gnu++11 -o CMakeFiles\\tshark.dir\\third_library\\ip2region\\ip2region_util.cpp.obj -c F:\\code\\vscodecpp\\tshark\\third_library\\ip2region\\ip2region_util.cpp",
+  "file": "F:/code/vscodecpp/tshark/third_library/ip2region/ip2region_util.cpp",
+  "output": "CMakeFiles/tshark.dir/third_library/ip2region/ip2region_util.cpp.obj"
+}
+]

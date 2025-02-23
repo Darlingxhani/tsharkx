@@ -1,0 +1,3 @@
+F:/code/vscodecpp/tshark/build/CMakeFiles/tshark.dir
+F:/code/vscodecpp/tshark/build/CMakeFiles/edit_cache.dir
+F:/code/vscodecpp/tshark/build/CMakeFiles/rebuild_cache.dir

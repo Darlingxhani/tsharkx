@@ -1,0 +1,3 @@
+F:\Cmake\bin\cmake.exe -E rm -f CMakeFiles\tshark.dir/objects.a
+F:\Program\MinGW\bin\ar.exe qc CMakeFiles\tshark.dir/objects.a @CMakeFiles\tshark.dir\objects1.rsp
+F:\program\MinGW\bin\g++.exe -g -Wl,--whole-archive CMakeFiles\tshark.dir/objects.a -Wl,--no-whole-archive -o tshark.exe -Wl,--out-implib,libtshark.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\tshark.dir\linkLibs.rsp
