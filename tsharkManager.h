@@ -4,7 +4,7 @@
 #include "third_library/rapidjson/prettywriter.h"
 #include "third_library/rapidjson/stringbuffer.h"
 #include "third_library/ip2region/ip2region_util.h"
-#include <../third_library/loguru/loguru.hpp>
+#include "third_library/loguru/loguru.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -21,6 +21,8 @@ class TsharkManager {
 public:
     TsharkManager(std::string workDir);
     ~TsharkManager();
+
+    std::vector<AdapterInfo> getNetworkAdapters();
 
     // 分析数据包文件
     bool analysisFile(std::string filePath);

@@ -1,6 +1,4 @@
-
-#include"tsharkManager.h"
-
+#include "tsharkManager.h"
 bool TsharkManager::parseLine(std::string line, std::shared_ptr<Packet> packet)
 {
 
@@ -11,10 +9,15 @@ bool TsharkManager::parseLine(std::string line, std::shared_ptr<Packet> packet)
     std::string filed;
     std::vector<std::string> fields;
     
-    while(std::getline(ss,filed,'\t'))  {
-        fields.push_back(filed);
-    }
-    
+    size_t start=0,end;
+    while((end=line.find("\t",start)) != std::string::npos) {
+        fields.push_back(line.substr(start,end-start));
+        start=end+1;
+    } 
+    fields.push_back(line.substr(start));
+    // while(std::getline(ss,filed,'\t')) {
+    //     fields.push_back(filed);
+    // }
     // 字段顺序：
     // 0: frame.number
     // 1: frame.time_epoch
@@ -138,6 +141,8 @@ bool TsharkManager::analysisFile(std::string filePath)
     // 记录当前分析的文件路径
     currentFilePath = filePath;
     
+    tsharkPath=tsharkArgs[0];
+
     return true;
 }
 void TsharkManager::printAllPackets() {
@@ -172,17 +177,20 @@ void TsharkManager::printAllPackets() {
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         pktObj.Accept(writer);
 
-        // 打印JSON输出
-         LOG_F(INFO,buffer.GetString());
+        
+        LOG_F(INFO,buffer.GetString());
+
+        //std::cout<<buffer.GetString()<<std::endl;
 
         getPacketHexData(packet->frame_number, packet->data);
         
-        LOG_F(INFO,"Packet Hex Data: ");
+        std::cout<<"Packet Hex Data: ";
         for(auto byte : packet->data) {
             printf("%02x ", byte);
         }   
         std::cout<<std::endl<<std::endl;
     }
+    std::cout<<allPackets.size()<<std::endl;
     LOG_F(INFO,"%d packets have been printed.",allPackets.size());
 }
 
@@ -208,4 +216,49 @@ TsharkManager::TsharkManager(std::string config) {
 
 TsharkManager::~TsharkManager() {
 
+}
+// 打印出网卡的信息
+std::vector<AdapterInfo> TsharkManager::getNetworkAdapters()
+{
+    std::vector<std::string> others={"Event Tracing for Windows (ETW) reader",
+        "蓝牙网络连接",
+        "VMware Network Adapter VMnet","USBPcap"};
+    std::vector<AdapterInfo> adapters;
+    AdapterInfo adapter;
+    std::string command = tsharkPath+" -D";
+    FILE *pipe=popen(command.c_str(),"r");
+    if(!pipe)
+    {
+
+        LOG_F(ERROR,"Adapter popen error");
+        return std::vector<AdapterInfo>();
+    }
+
+    char buffer[4096];
+    while(fgets(buffer,sizeof(buffer),pipe)) {
+        std::string line(buffer);
+        // 去除重复命令
+        bool enflag=false;
+        for(auto Other:others) {
+            if((line.find(Other)!= std::string::npos)) {
+                enflag=true;
+                break;
+            }
+        }
+        if(enflag) {
+            continue;
+        }
+        size_t lflag = line.find('(');
+        size_t rflag = line.find(')');
+        size_t lflag2 = line.find('\\');
+        if(lflag != std::string::npos && rflag != std::string::npos) {
+            
+            adapter.id = std::stoi(line.substr(0,2))? std::stoi(line.substr(0,2)) : std::stoi(line.substr(0,1));
+            adapter.name = line.substr(lflag+1,rflag-lflag-1);
+            adapter.remark = line.substr(lflag2,lflag-1-lflag2);
+        }
+        adapters.push_back(adapter);       
+    }
+    pclose(pipe);
+    return adapters;
 }

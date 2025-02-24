@@ -43,3 +43,10 @@ struct PacketHeader {
     uint32_t caplen;
     uint32_t len;
 };
+
+// 网卡信息
+struct AdapterInfo {
+    int id;
+    std::string name;
+    std::string remark;
+};
