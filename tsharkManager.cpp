@@ -83,7 +83,7 @@ bool TsharkManager::parseLine(std::string line, std::shared_ptr<Packet> packet)
 bool TsharkManager::analysisFile(std::string filePath)
 {
     std::vector<std::string> tsharkArgs = {
-        "F:\\CTFMisc_tool\\Misc_tool\\Wireshark-4.2.4-x64\\Wireshark\\tshark.exe",
+        tsharkPath,
         "-r", filePath,
         "-T", "fields",
         "-e", "frame.number",
@@ -116,9 +116,6 @@ bool TsharkManager::analysisFile(std::string filePath)
         LOG_F(ERROR,"Failed to run tshark command!");
         return false;
     }
-    
-    IP2RegionUtil ip2RegionUtil;
-    ip2RegionUtil.init("../third_library/ip2region/ip2region.xdb");
 
     char buffer[4096];
     std::vector<Packet> packets;
@@ -129,7 +126,7 @@ bool TsharkManager::analysisFile(std::string filePath)
 
         packet->file_offset=file_offset+sizeof(PacketHeader);
         file_offset=packet->cap_len+packet->file_offset;
-
+        // 计算地理位置
         packet->src_location = IP2RegionUtil::getIpLocation(packet->src_ip);
         packet->dst_location = IP2RegionUtil::getIpLocation(packet->dst_ip);
 
@@ -140,8 +137,7 @@ bool TsharkManager::analysisFile(std::string filePath)
 
     // 记录当前分析的文件路径
     currentFilePath = filePath;
-    
-    tsharkPath=tsharkArgs[0];
+
 
     return true;
 }
@@ -211,7 +207,8 @@ bool TsharkManager::getPacketHexData(uint32_t frameNumber, std::vector<unsigned 
 }
 
 TsharkManager::TsharkManager(std::string config) {
-    
+    IP2RegionUtil ip2RegionUtil;
+    ip2RegionUtil.init("../third_library/ip2region/ip2region.xdb");
 }
 
 TsharkManager::~TsharkManager() {
@@ -261,4 +258,93 @@ std::vector<AdapterInfo> TsharkManager::getNetworkAdapters()
     }
     pclose(pipe);
     return adapters;
+}
+void TsharkManager::captureWorkThreadEntry(std::string adapterName)
+{
+    // 包的存储
+    std::string captureFile = pcappath;
+    
+    std::vector<std::string> tsharkArgs = {
+        tsharkPath,
+        "-i", ("\""+adapterName+"\"").c_str(),
+        "-w", captureFile,               // 默认将采集到的数据包写入到这个文件下
+        "-F", "pcap",                    // 指定存储的格式为PCAP格式
+        "-l",
+        "-T", "fields",
+        "-e", "frame.number",
+        "-e", "frame.time_epoch",
+        "-e", "frame.len",
+        "-e", "frame.cap_len",
+        "-e", "eth.src",
+        "-e", "eth.dst",
+        "-e", "ip.src",
+        "-e", "ipv6.src",
+        "-e", "ip.dst",
+        "-e", "ipv6.dst",
+        "-e", "tcp.srcport",
+        "-e", "udp.srcport",
+        "-e", "tcp.dstport",
+        "-e", "udp.dstport",
+        "-e", "_ws.col.Protocol",
+        "-e", "_ws.col.Info",
+    };
+
+    std::string  command;
+
+    for(auto arg : tsharkArgs) {
+        command += arg + " ";
+    }
+
+    FILE *pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        LOG_F(ERROR,"Failed to run tshark command!");
+        assert(false);
+    }
+    
+    char buffer[4096];
+    uint32_t file_offset = sizeof(PcapHeader);
+    while(fgets(buffer, sizeof(buffer), pipe) != nullptr && !stopFlag) {
+        std::string line=buffer;
+        if (line.find("Capturing on") != std::string::npos) {
+            continue;
+        }
+        std::shared_ptr<Packet> packet = std::make_shared<Packet>();   
+        parseLine(line,packet);
+
+        packet->file_offset = sizeof(PacketHeader) + file_offset ;
+        file_offset = packet->cap_len + packet->file_offset;
+
+        // 获取地理位置
+        packet->src_location = IP2RegionUtil::getIpLocation(packet->src_ip);
+        packet->dst_location = IP2RegionUtil::getIpLocation(packet->dst_ip);
+
+        allPackets.insert(std::make_pair<>(packet->frame_number, packet));
+
+    }
+
+    pclose(pipe);
+    currentFilePath = captureFile;
+    return ;
+}
+
+bool TsharkManager::startCapture(std::string adapterName) {
+
+    LOG_F(INFO, "即将开始抓包，网卡：%s", adapterName.c_str());
+
+    // 关闭停止标记
+    stopFlag = false;
+
+	// 启动抓包线程
+    captureWorkThread = std::make_shared<std::thread>(&TsharkManager::captureWorkThreadEntry, this,adapterName);
+    return true;
+}
+
+// 停止抓包
+bool TsharkManager::stopCapture() {
+
+    LOG_F(INFO, "即将停止抓包");
+    stopFlag = true;
+    captureWorkThread->join();
+
+    return true;
 }
