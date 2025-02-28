@@ -1,4 +1,6 @@
 #include "tsharkManager.h"
+#include "MiscUtil.h"
+#include "ProcessUtil.h"
 bool TsharkManager::parseLine(std::string line, std::shared_ptr<Packet> packet)
 {
 
@@ -207,6 +209,7 @@ bool TsharkManager::getPacketHexData(uint32_t frameNumber, std::vector<unsigned 
 }
 
 TsharkManager::TsharkManager(std::string config) {
+    workdir = config;
     IP2RegionUtil ip2RegionUtil;
     ip2RegionUtil.init("../third_library/ip2region/ip2region.xdb");
 }
@@ -295,7 +298,7 @@ void TsharkManager::captureWorkThreadEntry(std::string adapterName)
         command += arg + " ";
     }
 
-    FILE *pipe = popen(command.c_str(), "r");
+    FILE *pipe = ProcessUtil::PopenEx(command.c_str(), &captureTsharkPid);
     if (!pipe) {
         LOG_F(ERROR,"Failed to run tshark command!");
         assert(false);
@@ -344,7 +347,206 @@ bool TsharkManager::stopCapture() {
 
     LOG_F(INFO, "即将停止抓包");
     stopFlag = true;
+
+    ProcessUtil::Kill(captureTsharkPid);
     captureWorkThread->join();
+
+    return true;
+}
+// 获取指定网卡的流量趋势数据
+void TsharkManager::adapterFlowTrendMonitorThreadEntry(std::string adapterName) {
+    // adapterFlowTrendMonitorMap   map<adapterName(string), adapterFlowTrendMonitor(Class)>
+    if (adapterFlowTrendMonitorMap.find(adapterName) == adapterFlowTrendMonitorMap.end()) {
+        return;
+    }
+
+    char buffer[256] = { 0 };
+    std::map<long, long>& trafficPerSecond = adapterFlowTrendMonitorMap[adapterName].flowTrendData;
+
+    // Tshark命令，指定网卡，实时捕获时间戳和数据包长度
+    std::string tsharkCmd = tsharkPath + " -i \"" + adapterName + "\" -T fields -e frame.time_epoch -e frame.len";
+
+    LOG_F(INFO, "启动网卡流量监控: %s", tsharkCmd.c_str());
+
+    PID_T tsharkPid = 0;
+    FILE* pipe = ProcessUtil::PopenEx(tsharkCmd.c_str(), &tsharkPid);
+    if (!pipe) {
+        throw std::runtime_error("Failed to run tshark command.");
+    }
+
+    // 将管道保存起来
+    adapterFlowTrendMapLock.lock();
+    adapterFlowTrendMonitorMap[adapterName].monitorTsharkPipe = pipe;
+    adapterFlowTrendMonitorMap[adapterName].tsharkPid = tsharkPid;
+    adapterFlowTrendMapLock.unlock();
+
+    // 逐行读取tshark输出
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        std::string line(buffer);
+        std::istringstream iss(line);
+        std::string timestampStr, lengthStr;
+
+        if (line.find("Capturing") != std::string::npos || line.find("captured") != std::string::npos) {
+            continue;
+        }
+
+        // 解析每行的时间戳和数据包长度
+        if (!(iss >> timestampStr >> lengthStr)) {
+            continue;
+        }
+
+        try {
+            // 转换时间戳为long类型，秒数部分
+            long timestamp = static_cast<long>(std::stod(timestampStr));
+
+            // 转换数据包长度为long类型
+            long packetLength = std::stol(lengthStr);
+
+            // 每秒的字节数累加
+            trafficPerSecond[timestamp] += packetLength;
+
+            // 如果trafficPerSecond超过300秒，则删除最早的数据，始终只存储最近300秒的数据
+            while (trafficPerSecond.size() > 300) {
+                // 访问并删除最早的时间戳数据
+                auto it = trafficPerSecond.begin();
+                LOG_F(INFO, "Removing old data for second: %ld, Traffic: %ld bytes", it->first, it->second);
+                trafficPerSecond.erase(it);
+            }
+
+        }
+        catch (const std::exception& e) {
+            // 处理转换错误
+            LOG_F(ERROR, "Error parsing tshark output: %s", line.c_str());
+        }
+    }
+
+    LOG_F(INFO, "adapterFlowTrendMonitorThreadEntry 已结束");
+}
+// 开始监控所有网卡流量统计数据
+void TsharkManager::startMonitorAdaptersFlowTrend() {
+
+    std::unique_lock<std::recursive_mutex> lock(adapterFlowTrendMapLock);
+
+    adapterFlowTrendMonitorStartTime = time(nullptr);
+
+    // 第一步：获取网卡列表
+    std::vector<AdapterInfo> adapterList = getNetworkAdapters();
+
+    // 第二步：每个网卡启动一个线程，统计对应网卡的数据
+    for (auto adapter : adapterList) {
+
+        adapterFlowTrendMonitorMap.insert(std::make_pair<>(adapter.name, AdapterMonitorInfo()));
+        AdapterMonitorInfo& monitorInfo = adapterFlowTrendMonitorMap.at(adapter.name);
+
+        monitorInfo.monitorThread = std::make_shared<std::thread>(&TsharkManager::adapterFlowTrendMonitorThreadEntry, this, adapter.name);
+        if (monitorInfo.monitorThread == nullptr) {
+            LOG_F(ERROR, "监控线程创建失败，网卡名：%s", adapter.name.c_str());
+        } else {
+            LOG_F(INFO, "监控线程创建成功，网卡名：%s,monitorThread: %p", adapter.name.c_str(), monitorInfo.monitorThread.get());
+        }
+    }
+}
+// 停止监控所有网卡流量统计数据
+void TsharkManager::stopMonitorAdaptersFlowTrend() {
+
+    std::unique_lock<std::recursive_mutex> lock(adapterFlowTrendMapLock);
+
+    // 先杀死对应的tshark进程
+    for (auto adapterPipePair : adapterFlowTrendMonitorMap) {
+        ProcessUtil::Kill(adapterPipePair.second.tsharkPid);
+    }
+
+    // 然后关闭管道
+    for (auto adapterPipePair : adapterFlowTrendMonitorMap) {
+
+        // 然后关闭管道
+        pclose(adapterPipePair.second.monitorTsharkPipe);
+
+        // 最后等待对应线程退出
+        adapterPipePair.second.monitorThread->join();
+
+        LOG_F(INFO, "网卡：%s 流量监控已停止", adapterPipePair.first.c_str());
+    }
+
+    // 清空记录的流量趋势数据
+    adapterFlowTrendMonitorMap.clear();
+}
+// 获取所有网卡流量统计数据
+void TsharkManager::getAdaptersFlowTrendData(std::map<std::string, std::map<long, long>>& flowTrendData) {
+
+    long timeNow = time(nullptr);
+
+    // 数据从最左边冒出来
+    // 一开始：以最开始监控时间为左起点，终点为未来300秒
+    // 随着时间推移，数据逐渐填充完这300秒
+    // 超过300秒之后，结束节点就是当前，开始节点就是当前-300
+    long startWindow = timeNow - adapterFlowTrendMonitorStartTime > 300 ? timeNow - 300 : adapterFlowTrendMonitorStartTime;
+    long endWindow = timeNow - adapterFlowTrendMonitorStartTime > 300 ? timeNow : adapterFlowTrendMonitorStartTime + 300;
+
+    adapterFlowTrendMapLock.lock();
+    for (auto adapterPipePair : adapterFlowTrendMonitorMap) {
+        flowTrendData.insert(std::make_pair<>(adapterPipePair.first, std::map<long, long>()));
+
+        // 从当前时间戳向前倒推300秒，构造map
+        for (long t = startWindow; t <= endWindow; t++) {
+            // 如果trafficPerSecond中存在该时间戳，则使用已有数据；否则填充为0
+            if (adapterPipePair.second.flowTrendData.find(t) != adapterPipePair.second.flowTrendData.end()) {
+                flowTrendData[adapterPipePair.first][t] = adapterPipePair.second.flowTrendData.at(t);
+            } else {
+                flowTrendData[adapterPipePair.first][t] = 0;
+            }
+        }
+    }
+
+    adapterFlowTrendMapLock.unlock();
+}
+bool TsharkManager::getPacketDetailInfo(uint32_t frameNumber, std::string &result) {
+
+    // 先通过editcap将这一帧数据包从文件中摘出来，然后再获取详情，这样会快一些
+    std::string tmpFilePath = MiscUtil::getDefaultDataDir() + MiscUtil::getRandomString(10) + ".pcap";
+    std::string splitCmd = editcapPath + " -r " + currentFilePath + " " + tmpFilePath + " " + std::to_string(frameNumber) + "-" + std::to_string(frameNumber);
+    if (!ProcessUtil::Exec(splitCmd)) {
+        LOG_F(ERROR, "Error in executing command: %s", splitCmd.c_str());
+        remove(tmpFilePath.c_str());
+        return false;
+    }
+
+    // 通过tshark获取指定数据包详细信息，输出格式为XML
+    // 启动'tshark -r ${currentFilePath} -T pdml'命令，获取指定数据包的详情
+    std::string cmd = tsharkPath + " -r " + tmpFilePath + " -T pdml";
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(ProcessUtil::PopenEx(cmd.c_str()), pclose);
+    if (!pipe) {
+        std::cout << "Failed to run tshark command." << std::endl;
+        remove(tmpFilePath.c_str());
+        return false;
+    }
+
+    // 读取tshark输出
+    char buffer[8192] = { 0 };
+    std::string tsharkResult;
+    setvbuf(pipe.get(), NULL, _IOFBF, sizeof(buffer));
+    int count = 0;
+    while (fgets(buffer, sizeof(buffer) - 1, pipe.get()) != nullptr) {
+        tsharkResult += buffer;
+        memset(buffer, 0, sizeof(buffer));
+    }
+
+    remove(tmpFilePath.c_str());
+
+    // 将xml内容转换为JSON
+    rapidjson::Document detailJson;
+    if (!MiscUtil::xml2JSON(tsharkResult, detailJson)) {
+        LOG_F(ERROR, "XML转JSON失败");
+        return false;
+    }
+
+    // 序列化为 JSON 字符串
+    rapidjson::StringBuffer stringBuffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(stringBuffer);
+    detailJson.Accept(writer);
+
+    // 设置数据包详情结果
+    result = stringBuffer.GetString();
 
     return true;
 }
